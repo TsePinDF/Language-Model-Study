@@ -1,0 +1,4 @@
+https://huggingface.co/datasets/Open-Orca/OpenOrca
+https://huggingface.co/datasets/wikimedia/wikipedia
+https://huggingface.co/datasets/nyu-mll/glue
+https://huggingface.co/datasets/fka/prompts.chat

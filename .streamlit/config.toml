@@ -1,0 +1,17 @@
+[theme]
+base = "light"
+primaryColor = "#16867a"
+backgroundColor = "#f7f8f8"
+secondaryBackgroundColor = "#eef1f1"
+textColor = "#172026"
+linkColor = "#116c63"
+borderColor = "#d8dede"
+showWidgetBorder = true
+baseRadius = "4px"
+buttonRadius = "4px"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

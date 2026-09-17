@@ -1,47 +1,219 @@
 # Test-Model-Thing (TMT)
 
-[YouTube Video](https://youtu.be/9UERVVwpNew)
+TMT is a byte-level recurrent language-model experiment. The original project is
+implemented in MLX and combines:
 
-This is a small proof-of-concept language model (not an LLM) that incorporates the following (and some smaller features as well):
-* Latent-space prediction
-* Internal state + recurrent trace units (RTUs)
-* Byte input/output
-* Continuous data streaming
-* Test-time training
+- raw byte input/output
+- latent-space next-step prediction
+- recurrent trace units (RTUs)
+- persistent runtime state
+- continuous/test-time weight updates
 
-The model is built with MLX, so it should run fine on all Apple Silicon devices. MLX on Linux has not been tested, but feel free to try it.
+This repository now keeps the original MLX implementation as a reference while
+adding a modular PyTorch port for NVIDIA/CUDA-oriented experimentation.
 
-Being a proof of concept I have only trained a 4.5-million parameter model (keep in mind, GPT-1 was ~117m) for about 12 hours, but there are very promising results. The model tends to misspell characters (since it outputs byte-by-byte, rather than token-by-token) but it is able to close quotes/brackets and such. Given further training and scaling up the hyperparameters this could become much more powerful. My dataset is also tiny (only a few hundred MB), so there's a lot more world knowledge that can be fed into the model.
+## Repository Layout
 
-This model architecture was designed in about a month by me (a solo high school dev) and some Gemini (only pair programming, no agents). I wrote about a dozen prototypes before creating this architecture. I write READMEs myself without AI.
+```text
+main.py                 Original MLX runtime and training loop
+benchmark.py            Original MLX CoLA benchmark experiment
+docs/architecture.md    Source-level documentation of the MLX behavior
+tmt/                    PyTorch package
+configs/                Model and experiment configurations
+scripts/                Train, generate, and evaluate entry points
+tests/                  Unit and smoke tests
+```
 
-Feel free to fork the training and benchmark code (everything is under MIT). I really encourage you to try things out, submit issues, and fork the repo.
+The PyTorch code intentionally separates:
 
-#### KEEP THE RTRL TRACE PASS RUNNING FOR EVERY BYTE to update memory! Otherwise the model immediately breaks down.
+```text
+model weights      = slow/global learned state in nn.Module
+runtime memory     = explicit TMTState passed into forward/trainer calls
+training policy    = optimizer and online update behavior in TMTTrainer
+evaluation logic   = separate byte-level research hooks
+```
 
-<img width="499" height="497" alt="3f7f1530-c0c7-43c4-9981-30e9023a19fb" src="https://github.com/user-attachments/assets/eb7e5a97-09b5-4a7b-9484-eb898042e9dc" />
+The model interface is state-explicit:
 
-## Training your own model
+```python
+output = model(byte_input, state)
+logits = output.logits
+latent = output.latent
+state = output.state
+```
 
-Model weights (in ```.safetensors```) are not provided because GitHub doesn't like very large files. But, you can train your own model simply by initializing a ```venv``` and installing ```mlx```, no other libraries needed, then running ```main.py```. When you run it, you will be prompted with the mode, ```train``` being train on dataset and ```chat``` being chat. There is also ```chatreadonly``` for readonly chat (the model weights will not re-save to disk and override things) and ```chatnotrace``` if you want to break things. You will have to configure your own dataset by modifying the code (to run dataset mode), but you should be able to run chat mode without modifying anything if you have weights already.
+## Installation
 
-Once it begins training, you can safely ^C the program and it will save weights. It should also periodically save weights if I'm not mistaken. The saved weights include the internal memory so the model will remember that the next time it runs. You can launch into chat mode and the memory should carry on from whatever it was learning in training.
+Install a CUDA-enabled PyTorch build appropriate for the machine, then install
+the remaining dependencies:
 
-## How it works
+```bash
+python -m pip install -r requirements.txt
+```
 
-In detail, here are some of the main capabilities of the model that differ from LLMs:
-* JEPA-style latent space prediction, as the decoder can be removed/disabled and the model still rolls out forward as is. The model is not trained explicitly on predicting the next byte, but rather on two separate goals (predicting the next 'thing' in latent space, and translating the current latent space vector to a byte).
-* Theoretically infinite memory, as it does not have a context window and instead relies on RTUs to store internal state/memory. However it does decay old memories over time. Also I think this should be O(1) memory based on my implementation but I'm not 100% sure.
-* Built-in multimodality, as the model outputs bytes (and thus should theoretically be capable of handling any binary data).
-* Streaming data live, since the model only processes one byte at once at rapid pace. In fact it is completely 'blind' to everything that came before the current byte, only relying on the current processed byte and its internal memory to decide the next byte. This confirms the model is definitely learning to remember things.
-* Continual training, as it keeps training on user input, training data, and its own output to improve its predictions automatically. Keep in mind the model can only output a byte (0-255) each pass anyways (in addition to updating its own state).
+Install MLX separately only if you want to run the original `main.py` reference
+on Apple Silicon.
 
-The two important hyperparameters are the size of the latent vector (dim) and the amount of individual state layers the latent passes through before decoding (layers). For my 4.5m test these are ```dim = 512``` and ```layers = 16```. There are some other configurations you can change but I think they are less important.
+## Configurations
 
-For reproduction purposes the dataset I trained my model on is ```simplewiki-20260801-pages-articles.xml.bz2```, from the Wikipedia dumps.
+The provided configs are approximate target sizes:
 
-I think this probably will contribute to solving continual learning and memory but I need other people to review and verify my work! Please feel free to open GitHub issues to tell me what's wrong. If you have compute (e.g. you are a lab or just have GPUs lying around), feel free to fork my code and train larger models as well, with credit. I personally don't have enough compute and as such I can't really train very large models.
+| Config | Dim | Layers | Parameters |
+| --- | ---: | ---: | ---: |
+| `configs/tmt_5m.yaml` | 512 | 16 | 4,481,793 |
+| `configs/tmt_25m.yaml` | 1024 | 23 | 24,713,473 |
+| `configs/tmt_50m.yaml` | 1280 | 30 | 49,924,097 |
+| `configs/tmt_100m.yaml` | 1792 | 31 | 100,635,393 |
 
-Below is an approximate flow chart of the model architecture, made in Apple's Freeform app (excluding the wrapper for dataset cleaning and input/output handling) for reference. Note that the arrow connecting the target latent to the CE loss should instead be the target byte to the CE loss.
+The ~5M config matches the original `dim=512`, `layers=16` setup as closely as
+practical.
 
-<img width="1653" height="1161" alt="JEPA thing" src="https://github.com/user-attachments/assets/2d3a34ff-ba6a-44b8-b361-6c73da9216c0" />
+## Downloading Datasets
+
+Download a complete Hugging Face dataset repository by ID or URL:
+
+```bash
+python scripts/download_dataset.py Open-Orca/OpenOrca
+python scripts/download_dataset.py https://huggingface.co/datasets/Open-Orca/OpenOrca
+```
+
+Downloads default to `data/huggingface/OWNER--NAME`. Preview the required files
+and disk space first, or select only particular files:
+
+```bash
+python scripts/download_dataset.py Open-Orca/OpenOrca --dry-run
+python scripts/download_dataset.py Open-Orca/OpenOrca --include "*.parquet"
+```
+
+Use `--revision` to pin a branch, tag, or full commit hash. For private or gated
+datasets, set `HF_TOKEN` in the environment, authenticate with `hf auth login`,
+or enter a token in the Streamlit Dataset tab. UI-provided tokens are passed
+only in the download job's environment and are not stored in job metadata,
+commands, or logs.
+
+## Training
+
+Training reads raw bytes from files matched by the config's `stream.data_glob`
+or an override.
+
+```bash
+python scripts/train.py --config configs/tmt_5m.yaml --data "wikipedia_clean/**/wiki_*" --max-steps 1000 --run-id wiki-5m-01
+```
+
+Checkpoints are pickle-free safetensors files grouped by training run:
+
+```text
+checkpoints/wiki-5m-01/
+  step_000000500.safetensors
+  step_000001000.safetensors
+  model_latest.safetensors
+```
+
+Full step checkpoints include:
+
+- model weights
+- optimizer state
+- explicit runtime state and traces
+- config
+- step
+- CPU and CUDA RNG state
+- byte-stream reader positions and reset counters
+- total processed-byte count
+- metadata such as git commit
+
+`model_latest.safetensors` contains weights and config for generation and
+evaluation. Training also writes a final snapshot when it reaches `--max-steps`
+or receives a stop signal.
+
+Resume a run with an absolute target step:
+
+```bash
+python scripts/train.py --resume checkpoints/wiki-5m-01/step_000001000.safetensors --max-steps 2000
+```
+
+Convert a trusted checkpoint created by the earlier PyTorch port:
+
+```bash
+python scripts/convert_checkpoint.py old_checkpoint.pt output.safetensors --run-id imported-run
+```
+
+## Generation
+
+Frozen generation:
+
+```bash
+python scripts/generate.py --checkpoint checkpoints/wiki-5m-01/model_latest.safetensors --prompt "Hello"
+```
+
+Online generation with weight updates:
+
+```bash
+python scripts/generate.py --checkpoint checkpoints/wiki-5m-01/model_latest.safetensors --prompt "Hello" --online
+```
+
+Generated bytes are decoded as UTF-8 with replacement, so invalid intermediate
+byte sequences do not crash generation.
+
+## Evaluation
+
+Basic byte-level evaluation:
+
+```bash
+python scripts/evaluate.py --checkpoint checkpoints/wiki-5m-01/model_latest.safetensors --data sample.txt
+```
+
+Implemented hooks include:
+
+- byte-level cross entropy
+- bits per byte
+- retention probes
+- forgetting probes
+- memory-horizon probes
+- a simple plasticity probe API
+
+These are starter research probes, not final benchmarks.
+
+## Streamlit Console
+
+Launch the local control surface:
+
+```bash
+python -m streamlit run streamlit_app.py
+```
+
+The console exposes training configuration, safetensors resume selection,
+generation, evaluation, Hugging Face downloads, persisted job status and logs,
+stop controls, and checkpoint browsing. Jobs run outside Streamlit page reruns,
+so refreshing the browser does not interrupt training.
+
+## Tests
+
+Run:
+
+```bash
+python -m unittest discover -v
+```
+
+Verification covers byte encode/decode, state initialization/reset, state
+isolation, deterministic forward behavior, loss calculation, generation,
+safetensors checkpoint/RNG round-trips, exact byte-stream resume, configuration
+counts, CUDA, and BF16 where supported.
+
+## Status and Limitations
+
+The PyTorch port follows the MLX source behavior documented in
+`docs/architecture.md`, including the RTU equations, latent/byte/stop/variance
+losses, and trace-gradient update pattern.
+
+Important caveats:
+
+- Exact numerical parity with MLX has not been verified in this environment.
+- The original README's "no fixed context window" should not be read as
+  "infinite effective memory"; effective memory horizon must be measured.
+- The evaluation hooks are intentionally simple so they can be expanded without
+  coupling to TMT internals.
+
+## Original Reference
+
+`main.py` and `benchmark.py` are preserved as the MLX reference implementation.
+They are not deleted or replaced by the PyTorch package.

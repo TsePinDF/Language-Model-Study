@@ -1,0 +1,5 @@
+# Install the appropriate CUDA-enabled PyTorch build separately.
+huggingface_hub>=1.0
+PyYAML>=6.0
+safetensors>=0.7
+streamlit>=1.50

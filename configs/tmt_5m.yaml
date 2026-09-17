@@ -1,0 +1,35 @@
+name: tmt_5m
+dim: 512
+num_layers: 16
+temperature: 0.75
+seed: 1337
+optimizer:
+  learning_rate: 0.0005
+  weight_decay: 0.0
+losses:
+  byte: 1.0
+  latent: 1.0
+  stop: 1.0
+  variance: 1.0
+precision:
+  autocast: true
+  dtype: bf16
+  state_dtype: float32
+stream:
+  data_glob: wikipedia_clean/**/wiki_*
+  batch_size: 1
+  sequence_length: 256
+  reset_policy: document
+  reset_interval_bytes: 0
+  repeat: true
+checkpoint:
+  directory: checkpoints
+  interval: 500
+  resume:
+evaluation:
+  interval: 1000
+  max_bytes: 100000
+logging:
+  directory: runs
+  console_interval: 50
+  jsonl: true

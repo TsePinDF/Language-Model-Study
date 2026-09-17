@@ -3,7 +3,11 @@
 /wikipedia_clean/
 /CoLA/
 *.xml.bz2
-/__pycache__/
+__pycache__/
 *.pipe
 *.DS_Store
 *.safetensors
+runs/
+checkpoints/
+/data/
+*.pt
